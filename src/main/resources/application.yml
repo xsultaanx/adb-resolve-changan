@@ -1,0 +1,8 @@
+spring:
+  application:
+    name: adb
+
+changan:
+  keys:
+    appid: m7LHv0mSfzqdsFuy
+    sign: KXkJv4naQzSYTOhH
