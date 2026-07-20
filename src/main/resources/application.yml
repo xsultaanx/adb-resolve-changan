@@ -1,8 +1,30 @@
+server:
+  port: ${SERVER_PORT:8081}
+
 spring:
   application:
     name: adb
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/adb_resolver}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+    show-sql: false
 
 changan:
   keys:
     appid: m7LHv0mSfzqdsFuy
     sign: KXkJv4naQzSYTOhH
+
+telegram:
+  bot:
+    username: ${BOT_USERNAME:sync_auth_bot}
+    token: ${BOT_TOKEN:8907866781:AAFJp0NVI1vsFGEtLYktfri74yAqDWKX0ew}
+    admins: ${BOT_ADMINS:889144963}

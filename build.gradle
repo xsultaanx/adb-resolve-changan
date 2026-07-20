@@ -1,6 +1,6 @@
 plugins {
     id 'java'
-    id 'org.springframework.boot' version '4.1.0'
+    id 'org.springframework.boot' version '3.3.4'
     id 'io.spring.dependency-management' version '1.1.7'
 }
 
@@ -18,9 +18,22 @@ repositories {
     mavenCentral()
 }
 
+configurations.configureEach {
+    exclude group: 'com.fasterxml.jackson.module', module: 'jackson-module-jaxb-annotations'
+    exclude group: 'javax.xml.bind', module: 'jaxb-api'
+}
+
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
-    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.postgresql:postgresql'
+    implementation('org.telegram:telegrambots:6.9.7.1') {
+        exclude group: 'com.fasterxml.jackson.module', module: 'jackson-module-jaxb-annotations'
+    }
+    implementation('org.telegram:telegrambots-spring-boot-starter:6.9.7.1') {
+        exclude group: 'com.fasterxml.jackson.module', module: 'jackson-module-jaxb-annotations'
+    }
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
