@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: adb-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-adb_resolver}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - adb_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-adb_resolver}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  adb:
+    build: .
+    container_name: adb-bot
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8081
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-adb_resolver}
+      DB_USER: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      BOT_USERNAME: ${BOT_USERNAME:-sync_auth_bot}
+      BOT_TOKEN: ${BOT_TOKEN}
+      BOT_ADMINS: ${BOT_ADMINS:-}
+    ports:
+      - "${SERVER_PORT:-8081}:8081"
+
+volumes:
+  adb_pgdata:

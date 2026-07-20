@@ -17,4 +17,7 @@ public class AppSettings {
 
     @Column(name = "activation_ttl_hours", nullable = false)
     private int activationTtlHours;
+
+    @Column(name = "instruction_text", columnDefinition = "TEXT")
+    private String instructionText;
 }

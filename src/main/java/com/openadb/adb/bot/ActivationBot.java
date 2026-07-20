@@ -51,6 +51,8 @@ public class ActivationBot extends TelegramLongPollingBot {
     private static final String BTN_ADMIN_LOGS = "📊 Журнал действий";
     private static final String BTN_ADMIN_SET_LIMIT = "🎯 Выдать активации";
     private static final String BTN_ADMIN_SET_TTL = "⏱ Время активации";
+    private static final String BTN_ADMIN_SET_INSTRUCTION = "📝 Изменить инструкцию";
+    private static final String BTN_ADMIN_BROADCAST = "📢 Рассылка";
     private static final String BTN_CANCEL = "↩️ Отмена";
 
     private static final String STATE_WAITING_VIN = "WAITING_VIN";
@@ -60,21 +62,12 @@ public class ActivationBot extends TelegramLongPollingBot {
     private static final String STATE_ADMIN_LIMIT_ID = "ADMIN_LIMIT_ID";
     private static final String STATE_ADMIN_LIMIT_COUNT = "ADMIN_LIMIT_COUNT";
     private static final String STATE_ADMIN_TTL = "ADMIN_TTL";
+    private static final String STATE_ADMIN_INSTRUCTION = "ADMIN_INSTRUCTION";
+    private static final String STATE_ADMIN_BROADCAST = "ADMIN_BROADCAST";
 
     private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("dd.MM HH:mm:ss");
-
-    private static final String INSTRUCTION_TEXT = """
-            📖 *Инструкция*
-
-            1. Нажмите кнопку «🔧 Генерация Номера и Активация синего экрана».
-            2. Отправьте VIN автомобиля (ровно 17 символов, буквы латинские).
-            3. Бот сгенерирует factory-код формата `*#…#*` и активирует «синий экран» для этого VIN.
-            4. После активации сервер на запрос `authQuery` будет отвечать `success` для этого VIN *в течение времени, заданного администратором* (по умолчанию 24 ч).
-            5. По истечении срока активация истекает — `authQuery` начнёт возвращать ошибку. Повторная активация того же VIN продлевает срок ещё на тот же период.
-
-            ⚠️ Каждая активация расходует одну попытку из вашего лимита.
-            Лимит выдаёт администратор. У администратора попытки не расходуются.
-            """;
+    private static final int MAX_INSTRUCTION_LEN = 3800;
+    private static final int MAX_BROADCAST_LEN = 3800;
 
     private final TelegramBotProperties props;
     private final BotUserRepository userRepository;
@@ -187,6 +180,21 @@ public class ActivationBot extends TelegramLongPollingBot {
                         + "Отправьте новое значение в часах (целое число ≥ 1).");
                 return true;
             }
+            case BTN_ADMIN_SET_INSTRUCTION -> {
+                chatState.put(chatId, STATE_ADMIN_INSTRUCTION);
+                promptWithCancel(chatId, "Отправьте новый текст инструкции одним сообщением "
+                        + "(до " + MAX_INSTRUCTION_LEN + " символов).\n"
+                        + "Он полностью заменит текущий. Пришлите слово `default` — восстановится стандартный текст.");
+                return true;
+            }
+            case BTN_ADMIN_BROADCAST -> {
+                chatState.put(chatId, STATE_ADMIN_BROADCAST);
+                long total = userRepository.count();
+                promptWithCancel(chatId, "Отправьте текст рассылки одним сообщением "
+                        + "(до " + MAX_BROADCAST_LEN + " символов).\n"
+                        + "Получателей в базе: " + total + ".");
+                return true;
+            }
             case BTN_ADMIN_ADD_USER -> {
                 chatState.put(chatId, STATE_ADMIN_ADD_USER);
                 promptWithCancel(chatId, "Отправьте Telegram ID пользователя, которого нужно добавить с доступом.\n"
@@ -231,6 +239,8 @@ public class ActivationBot extends TelegramLongPollingBot {
             case STATE_ADMIN_LIMIT_ID -> adminLimitCaptureId(chatId, text);
             case STATE_ADMIN_LIMIT_COUNT -> adminLimitApply(chatId, user, text);
             case STATE_ADMIN_TTL -> adminSetTtl(chatId, user, text);
+            case STATE_ADMIN_INSTRUCTION -> adminSetInstruction(chatId, user, text);
+            case STATE_ADMIN_BROADCAST -> adminBroadcast(chatId, user, text);
             default -> sendWelcome(chatId, user);
         }
     }
@@ -346,6 +356,51 @@ public class ActivationBot extends TelegramLongPollingBot {
         logAction(admin, null, "SET_TTL", true, "hours=" + hours);
         safeSend(chatId, "✅ Время активации установлено: *" + hours + " ч*.\n"
                 + "Новые и продлеваемые активации будут действовать этот срок.", true);
+    }
+
+    private void adminSetInstruction(Long chatId, BotUser admin, String text) {
+        if (text.length() > MAX_INSTRUCTION_LEN) {
+            safeSend(chatId, "❌ Слишком длинный текст (" + text.length()
+                    + " символов). Максимум: " + MAX_INSTRUCTION_LEN + ".");
+            return;
+        }
+        String toSave = text.equalsIgnoreCase("default") ? null : text;
+        settingsService.setInstructionText(toSave);
+        logAction(admin, null, "SET_INSTRUCTION", true,
+                toSave == null ? "reset to default" : "len=" + text.length());
+        String saved = settingsService.getInstructionText();
+        SendMessage msg = new SendMessage();
+        msg.setChatId(chatId);
+        msg.setText("✅ Инструкция обновлена. Так её увидят пользователи:\n\n" + saved);
+        safeExecute(msg);
+    }
+
+    private void adminBroadcast(Long chatId, BotUser admin, String text) {
+        if (text.length() > MAX_BROADCAST_LEN) {
+            safeSend(chatId, "❌ Слишком длинный текст (" + text.length()
+                    + " символов). Максимум: " + MAX_BROADCAST_LEN + ".");
+            return;
+        }
+        List<BotUser> users = userRepository.findAll();
+        int sent = 0;
+        int failed = 0;
+        for (BotUser u : users) {
+            if (u.getTelegramId() == null) continue;
+            try {
+                SendMessage msg = new SendMessage();
+                msg.setChatId(u.getTelegramId());
+                msg.setText(text);
+                execute(msg);
+                sent++;
+            } catch (TelegramApiException e) {
+                failed++;
+                log.warn("Broadcast to {} failed: {}", u.getTelegramId(), e.getMessage());
+            }
+        }
+        logAction(admin, null, "BROADCAST", true,
+                "sent=" + sent + ", failed=" + failed + ", total=" + users.size());
+        safeSend(chatId, "📢 Рассылка завершена.\nДоставлено: *" + sent
+                + "*\nОшибок: *" + failed + "*\nВсего: *" + users.size() + "*", true);
     }
 
     private void adminAddUser(Long chatId, BotUser admin, String text) {
@@ -513,6 +568,8 @@ public class ActivationBot extends TelegramLongPollingBot {
             case "LIST_VINS" -> "Просмотр VIN";
             case "SET_LIMIT" -> "Выдача активаций";
             case "SET_TTL" -> "Изменение времени активации";
+            case "SET_INSTRUCTION" -> "Изменение инструкции";
+            case "BROADCAST" -> "Рассылка";
             default -> action;
         };
     }
@@ -568,8 +625,7 @@ public class ActivationBot extends TelegramLongPollingBot {
     private void sendInstruction(Long chatId, BotUser user) {
         SendMessage msg = new SendMessage();
         msg.setChatId(chatId);
-        msg.setText(INSTRUCTION_TEXT);
-        msg.enableMarkdown(true);
+        msg.setText(settingsService.getInstructionText());
         msg.setReplyMarkup(mainKeyboard(user));
         safeExecute(msg);
     }
@@ -624,6 +680,11 @@ public class ActivationBot extends TelegramLongPollingBot {
             row6.add(BTN_ADMIN_VINS);
             row6.add(BTN_ADMIN_DELETE_VIN);
             rows.add(row6);
+
+            KeyboardRow row7 = new KeyboardRow();
+            row7.add(BTN_ADMIN_SET_INSTRUCTION);
+            row7.add(BTN_ADMIN_BROADCAST);
+            rows.add(row7);
         }
 
         kb.setKeyboard(rows);

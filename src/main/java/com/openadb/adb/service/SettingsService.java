@@ -11,6 +11,18 @@ public class SettingsService {
 
     private static final Long SETTINGS_ID = 1L;
     private static final int DEFAULT_TTL_HOURS = 24;
+    public static final String DEFAULT_INSTRUCTION = """
+            📖 Инструкция
+
+            1. Нажмите кнопку «🔧 Генерация Номера и Активация синего экрана».
+            2. Отправьте VIN автомобиля (ровно 17 символов, буквы латинские).
+            3. Бот сгенерирует factory-код и активирует «синий экран» для этого VIN.
+            4. После активации сервер на запрос authQuery будет отвечать success для этого VIN в течение времени, заданного администратором.
+            5. По истечении срока активация истекает — authQuery начнёт возвращать ошибку. Повторная активация того же VIN продлевает срок ещё на тот же период.
+
+            ⚠️ Каждая активация расходует одну попытку из вашего лимита.
+            Лимит выдаёт администратор. У администратора попытки не расходуются.
+            """;
 
     private final AppSettingsRepository repository;
 
@@ -21,9 +33,28 @@ public class SettingsService {
     }
 
     public void setActivationTtlHours(int hours) {
-        AppSettings settings = repository.findById(SETTINGS_ID)
-                .orElseGet(() -> AppSettings.builder().id(SETTINGS_ID).build());
+        AppSettings settings = loadOrCreate();
         settings.setActivationTtlHours(hours);
         repository.save(settings);
+    }
+
+    public String getInstructionText() {
+        return repository.findById(SETTINGS_ID)
+                .map(AppSettings::getInstructionText)
+                .filter(s -> s != null && !s.isBlank())
+                .orElse(DEFAULT_INSTRUCTION);
+    }
+
+    public void setInstructionText(String text) {
+        AppSettings settings = loadOrCreate();
+        settings.setInstructionText(text);
+        repository.save(settings);
+    }
+
+    private AppSettings loadOrCreate() {
+        return repository.findById(SETTINGS_ID).orElseGet(() -> AppSettings.builder()
+                .id(SETTINGS_ID)
+                .activationTtlHours(DEFAULT_TTL_HOURS)
+                .build());
     }
 }
