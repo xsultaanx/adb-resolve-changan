@@ -7,3 +7,9 @@ out
 HELP.md
 Dockerfile
 docker-compose.yml
+.env
+.env.*
+!.env.example
+pgdata/
+nginx/certs/
+nginx/certbot-www/

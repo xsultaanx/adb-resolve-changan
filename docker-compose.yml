@@ -3,6 +3,9 @@ services:
     image: postgres:16
     container_name: adb-postgres
     restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-adb_resolver}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -24,16 +27,65 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
     environment:
-      SERVER_PORT: 8081
-      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-adb_resolver}
-      DB_USER: ${POSTGRES_USER:-postgres}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      SERVER_PORT: ${SERVER_PORT:-8081}
+      DB_URL: ${DB_URL:-jdbc:postgresql://postgres:5432/${POSTGRES_DB:-adb_resolver}}
+      DB_USER: ${DB_USER:-${POSTGRES_USER:-postgres}}
+      DB_PASSWORD: ${DB_PASSWORD:-${POSTGRES_PASSWORD:-postgres}}
       BOT_USERNAME: ${BOT_USERNAME:-sync_auth_bot}
-      BOT_TOKEN: ${BOT_TOKEN}
-      BOT_ADMINS: ${BOT_ADMINS:-}
+      BOT_TOKEN: ${BOT_TOKEN:-8907866781:AAFJp0NVI1vsFGEtLYktfri74yAqDWKX0ew}
+      BOT_ADMINS: ${BOT_ADMINS:-889144963}
+    expose:
+      - "8081"
+
+  cert-init:
+    image: alpine:3.20
+    container_name: adb-cert-init
+    restart: "no"
+    volumes:
+      - ./nginx/certs:/certs
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        if [ -s /certs/fullchain.pem ] && [ -s /certs/privkey.pem ]; then
+          echo "SSL certificate already present, skipping generation."
+          exit 0
+        fi
+        echo "Generating self-signed SSL certificate..."
+        apk add --no-cache openssl >/dev/null
+        CN="${SERVER_HOST:-adb-server}"
+        openssl req -x509 -nodes -newkey rsa:2048 \
+          -keyout /certs/privkey.pem \
+          -out /certs/fullchain.pem \
+          -days 3650 \
+          -subj "/CN=$$CN" \
+          -addext "subjectAltName=DNS:$$CN,DNS:localhost,IP:127.0.0.1"
+        chmod 644 /certs/fullchain.pem /certs/privkey.pem
+        echo "Certificate generated for CN=$$CN"
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: adb-nginx
+    restart: unless-stopped
+    depends_on:
+      adb:
+        condition: service_started
+      cert-init:
+        condition: service_completed_successfully
     ports:
-      - "${SERVER_PORT:-8081}:8081"
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+      - ./nginx/certbot-www:/var/www/certbot:ro
+      - nginx_logs:/var/log/nginx
 
 volumes:
   adb_pgdata:
+  nginx_logs:
